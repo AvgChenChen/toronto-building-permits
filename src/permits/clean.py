@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from .sources import DataError
+
 # Statuses for permits that were issued but won't lead to finished work. They count towards
 # approval times (the permit was issued) but not towards homes approved.
 ENDED = {
@@ -44,16 +46,23 @@ def _dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series.str.strip(), format="%Y-%m-%d", errors="coerce")
 
 
-def _whole_numbers(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series.str.replace(",", "").str.strip(), errors="coerce").fillna(0)
+def _whole_numbers(series: pd.Series, column: str) -> pd.Series:
+    values = series.str.replace(",", "", regex=False).str.strip()
+    missing = values.eq("")
+    numbers = pd.to_numeric(values.mask(missing), errors="coerce")
+    invalid = ~missing & (numbers.isna() | numbers.lt(0) | numbers.mod(1).ne(0))
+    if invalid.any():
+        example = values[invalid].iloc[0]
+        raise DataError(f"{column} has {int(invalid.sum())} invalid unit count(s); example {example!r}")
+    return numbers.fillna(0)
 
 
 def parse(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
     for column in ["APPLICATION_DATE", "ISSUED_DATE", "COMPLETED_DATE"]:
         out[column] = _dates(out[column])
-    out["UNITS_CREATED"] = _whole_numbers(out["DWELLING_UNITS_CREATED"])
-    out["UNITS_LOST"] = _whole_numbers(out["DWELLING_UNITS_LOST"])
+    out["UNITS_CREATED"] = _whole_numbers(out["DWELLING_UNITS_CREATED"], "DWELLING_UNITS_CREATED")
+    out["UNITS_LOST"] = _whole_numbers(out["DWELLING_UNITS_LOST"], "DWELLING_UNITS_LOST")
     out["POSTAL"] = out["POSTAL"].str.strip().str.upper()
     return out.drop(columns=["DWELLING_UNITS_CREATED", "DWELLING_UNITS_LOST"])
 

@@ -1,6 +1,8 @@
 import pandas as pd
+import pytest
 
 from permits.clean import CleaningLog, closed_permits, issued_permits
+from permits.sources import DataError
 
 from .helpers import file, permit
 
@@ -78,3 +80,14 @@ def test_closed_permits_skip_other_statuses_and_dates_in_the_future():
     assert rows["PERMIT_NUM"].tolist() == ["A"]
     assert round(rows.loc[0, "AGE_YEARS"], 2) == 2.0
     assert dict(log.steps)["Dropped from the closing analysis: closed date after Nov 2, 2026"] == 1
+
+
+@pytest.mark.parametrize("value", ["unknown", "2.5", "-3"])
+def test_invalid_nonblank_unit_counts_fail_instead_of_becoming_zero(value):
+    with pytest.raises(DataError, match="DWELLING_UNITS_CREATED"):
+        issued([permit("A", units=value)])
+
+
+def test_invalid_demolition_counts_also_fail_loudly():
+    with pytest.raises(DataError, match="DWELLING_UNITS_LOST"):
+        issued([permit("A", lost="not reported")])
